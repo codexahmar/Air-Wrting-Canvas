@@ -1,0 +1,527 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Rajdhani:wght@300;400;600&display=swap');
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --neon-blue: #00d4ff;
+    --neon-purple: #b400ff;
+    --neon-pink: #ff006e;
+    --neon-green: #00ff88;
+    --neon-yellow: #ffdc00;
+    --bg: #060610;
+    --border: rgba(0, 212, 255, 0.15);
+    --text-dim: rgba(0, 212, 255, 0.4);
+    --text-bright: rgba(0, 212, 255, 0.9);
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Rajdhani', sans-serif;
+    color: var(--text-bright);
+}
+
+/* Ambient grid */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Vignette */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 40%, rgba(6, 6, 16, 0.8) 100%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── APP ── */
+#app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+}
+
+#video {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0.55;
+    filter: saturate(0.6) contrast(1.1);
+}
+
+#drawCanvas {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* NO CSS mirror on landmark canvas — JS handles coordinate flip */
+#landmarkCanvas {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    z-index: 11;
+    pointer-events: none;
+}
+
+/* ── HUD ── */
+#hud {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+}
+
+#topBar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    background: linear-gradient(180deg, rgba(6, 6, 16, 0.9) 0%, transparent 100%);
+}
+
+#logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--neon-blue);
+    text-shadow: 0 0 20px var(--neon-blue);
+}
+
+#logo span {
+    color: rgba(0, 212, 255, 0.35);
+}
+
+#fps {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: rgba(0, 212, 255, 0.25);
+}
+
+#statusPill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    background: rgba(0, 212, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    transition: all 0.3s;
+}
+
+#statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.3s;
+}
+
+#statusDot.active {
+    background: var(--neon-green);
+    box-shadow: 0 0 10px var(--neon-green);
+}
+
+#statusDot.drawing {
+    background: var(--neon-blue);
+    box-shadow: 0 0 10px var(--neon-blue);
+    animation: blink 0.8s infinite;
+}
+
+#statusDot.clearing {
+    background: var(--neon-pink);
+    box-shadow: 0 0 10px var(--neon-pink);
+}
+
+#statusDot.grabbing {
+    background: var(--neon-yellow);
+    box-shadow: 0 0 10px var(--neon-yellow);
+    animation: blink 0.5s infinite;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* Mode display */
+#modeDisplay {
+    position: absolute;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+#modeLabel {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+#modeValue {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--neon-blue);
+    text-shadow: 0 0 30px var(--neon-blue);
+    transition: color 0.3s, text-shadow 0.3s, font-size 0.3s;
+}
+
+#modeValue.draw {
+    color: var(--neon-blue);
+    text-shadow: 0 0 30px var(--neon-blue);
+}
+
+#modeValue.erase {
+    color: var(--neon-pink);
+    text-shadow: 0 0 30px var(--neon-pink);
+}
+
+#modeValue.grab {
+    color: var(--neon-yellow);
+    text-shadow: 0 0 30px var(--neon-yellow);
+}
+
+#modeValue.idle {
+    color: var(--text-dim);
+    text-shadow: none;
+    font-size: 18px;
+}
+
+/* Gesture legend */
+#gestureLegend {
+    position: absolute;
+    bottom: 28px;
+    right: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    pointer-events: none;
+}
+
+.gestureItem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 13px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    opacity: 0.55;
+    transition: opacity 0.25s, border-color 0.25s;
+}
+
+.gestureItem.active {
+    opacity: 1;
+    border-color: rgba(0, 212, 255, 0.5);
+}
+
+#g-clear.active {
+    border-color: rgba(255, 80, 80, 0.6);
+}
+
+#g-grab.active {
+    border-color: rgba(255, 220, 0, 0.6);
+}
+
+.gestureIcon {
+    font-size: 17px;
+    line-height: 1;
+}
+
+/* Brush type label */
+#brushTypeLabel {
+    position: absolute;
+    bottom: 28px;
+    left: 28px;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+#brushTypeName {
+    display: block;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    color: var(--text-bright);
+    margin-top: 4px;
+}
+
+/* ── COLOUR PALETTE ── */
+#palette {
+    position: absolute;
+    top: 50%;
+    right: 28px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: all;
+}
+
+.colorBtn {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    transition: transform 0.2s;
+    position: relative;
+}
+
+.colorBtn::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.colorBtn.selected::after {
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.colorBtn:hover {
+    transform: scale(1.25);
+}
+
+.colorBtn[data-color="blue"] {
+    background: var(--neon-blue);
+    box-shadow: 0 0 10px var(--neon-blue);
+}
+
+.colorBtn[data-color="purple"] {
+    background: var(--neon-purple);
+    box-shadow: 0 0 10px var(--neon-purple);
+}
+
+.colorBtn[data-color="pink"] {
+    background: var(--neon-pink);
+    box-shadow: 0 0 10px var(--neon-pink);
+}
+
+.colorBtn[data-color="green"] {
+    background: var(--neon-green);
+    box-shadow: 0 0 10px var(--neon-green);
+}
+
+#paletteLabel {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    text-align: center;
+    margin-top: 2px;
+}
+
+/* ── BRUSH SLIDER ── */
+#brushControl {
+    position: absolute;
+    top: 50%;
+    left: 28px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: all;
+}
+
+#brushLabel {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+}
+
+/* Modern standard vertical range — no deprecated webkit keyword */
+#brushSlider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 6px;
+    height: 130px;
+    cursor: pointer;
+    accent-color: var(--neon-blue);
+    outline: none;
+    border: none;
+    background: transparent;
+}
+
+#brushSizeNum {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 20px;
+    text-align: center;
+}
+
+/* ── CLEAR OVERLAY ── */
+#clearOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+#clearOverlay.visible {
+    opacity: 1;
+}
+
+#clearOverlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 40% at 50% 50%, rgba(255, 0, 110, 0.12) 0%, transparent 70%);
+    animation: clearPulse 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes clearPulse {
+    from {
+        opacity: 0.5;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+}
+
+#clearText {
+    font-family: 'Space Mono', monospace;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: 0.5em;
+    text-transform: uppercase;
+    color: var(--neon-pink);
+    text-shadow: 0 0 40px var(--neon-pink), 0 0 80px rgba(255, 0, 110, 0.5);
+    animation: clearPulse 0.6s ease-in-out infinite alternate;
+}
+
+/* ── SCAN LINES ── */
+#scanlines {
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg,
+            transparent, transparent 2px,
+            rgba(0, 0, 0, 0.025) 2px, rgba(0, 0, 0, 0.025) 4px);
+    pointer-events: none;
+    z-index: 50;
+}
+
+/* ── LOADER ── */
+#loader {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    transition: opacity 0.8s, visibility 0.8s;
+}
+
+#loader.hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+#loaderTitle {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    color: var(--neon-blue);
+    text-shadow: 0 0 20px var(--neon-blue);
+    text-transform: uppercase;
+}
+
+#loaderBar {
+    width: 220px;
+    height: 2px;
+    background: rgba(0, 212, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+#loaderFill {
+    height: 100%;
+    background: var(--neon-blue);
+    box-shadow: 0 0 12px var(--neon-blue);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.4s ease;
+}
+
+#loaderStatus {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}

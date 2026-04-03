@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON HAND — Air Canvas</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ── LOADER ── -->
+    <div id="loader">
+        <div id="loaderTitle">NEON HAND // AIR CANVAS</div>
+        <div id="loaderBar">
+            <div id="loaderFill"></div>
+        </div>
+        <div id="loaderStatus">Initializing MediaPipe...</div>
+    </div>
+
+    <!-- ── CANVAS STAGE ── -->
+    <div id="app">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="drawCanvas"></canvas>
+        <canvas id="landmarkCanvas"></canvas>
+    </div>
+
+    <!-- ── HUD ── -->
+    <div id="hud">
+
+        <!-- Top bar -->
+        <div id="topBar">
+            <div id="logo">NEON<span>//</span>HAND</div>
+            <div id="fps">— FPS</div>
+            <div id="statusPill">
+                <div id="statusDot"></div>
+                <span id="statusText">INITIALIZING</span>
+            </div>
+        </div>
+
+        <!-- Mode label (bottom centre) -->
+        <div id="modeDisplay">
+            <div id="modeLabel">Current Mode</div>
+            <div id="modeValue" class="idle">Awaiting Hand</div>
+        </div>
+
+        <!-- Colour palette (right) -->
+        <div id="palette">
+            <div class="colorBtn selected" data-color="blue" title="Neon Blue (1)"></div>
+            <div class="colorBtn" data-color="purple" title="Neon Purple (2)"></div>
+            <div class="colorBtn" data-color="pink" title="Neon Pink (3)"></div>
+            <div class="colorBtn" data-color="green" title="Neon Green (4)"></div>
+            <div id="paletteLabel">COLOR</div>
+        </div>
+
+        <!-- Brush size slider (left) -->
+        <div id="brushControl">
+            <div id="brushLabel">BRUSH</div>
+            <input type="range" id="brushSlider" min="1" max="20" value="4">
+            <div id="brushSizeNum">4</div>
+        </div>
+
+        <!-- Gesture legend (bottom right) -->
+        <div id="gestureLegend">
+            <div class="gestureItem" id="g-draw">
+                <span class="gestureIcon">☝️</span>
+                <span>INDEX — DRAW</span>
+            </div>
+            <div class="gestureItem" id="g-grab">
+                <span class="gestureIcon">🤌</span>
+                <span>PINCH — GRAB & MOVE</span>
+            </div>
+            <div class="gestureItem" id="g-clear">
+                <span class="gestureIcon">✋</span>
+                <span>PALM — ERASE</span>
+            </div>
+            <div class="gestureItem" id="g-idle">
+                <span class="gestureIcon">✊</span>
+                <span>FIST — PAUSE</span>
+            </div>
+        </div>
+
+        <!-- Brush type label (bottom left) -->
+        <div id="brushTypeLabel">
+            Tool
+            <span id="brushTypeName">PENCIL</span>
+        </div>
+
+    </div>
+
+    <!-- ── FX ── -->
+    <div id="clearOverlay">
+        <div id="clearText">CLEARING</div>
+    </div>
+    <div id="scanlines"></div>
+
+    <!-- ── MediaPipe CDN ── -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- ── App Logic ── -->
+    <script src="app.js"></script>
+
+</body>
+
+</html>
