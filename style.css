@@ -414,54 +414,6 @@ body::after {
     text-align: center;
 }
 
-/* ── CLEAR OVERLAY ── */
-#clearOverlay {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s;
-}
-
-#clearOverlay.visible {
-    opacity: 1;
-}
-
-#clearOverlay::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse 60% 40% at 50% 50%, rgba(255, 0, 110, 0.12) 0%, transparent 70%);
-    animation: clearPulse 0.6s ease-in-out infinite alternate;
-}
-
-@keyframes clearPulse {
-    from {
-        opacity: 0.5;
-        transform: scale(0.95);
-    }
-
-    to {
-        opacity: 1;
-        transform: scale(1.05);
-    }
-}
-
-#clearText {
-    font-family: 'Space Mono', monospace;
-    font-size: 42px;
-    font-weight: 700;
-    letter-spacing: 0.5em;
-    text-transform: uppercase;
-    color: var(--neon-pink);
-    text-shadow: 0 0 40px var(--neon-pink), 0 0 80px rgba(255, 0, 110, 0.5);
-    animation: clearPulse 0.6s ease-in-out infinite alternate;
-}
-
 /* ── SCAN LINES ── */
 #scanlines {
     position: fixed;

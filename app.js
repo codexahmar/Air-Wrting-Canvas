@@ -61,20 +61,22 @@ function getEraserRadius(v) { return 20 + v * 2.5; }
 let currentColor = 'blue';
 let sliderVal = 4;
 let prevPoint = null;
+let prevMidPoint = null;
 let prevVelocity = 0;
-let currentMode = 'idle';
 let handPresent = false;
 let frameCount = 0;
 let lastFpsTime = performance.now();
-let prevGesture = 'idle';
+let pinchFrames = 0;
+
+const STROKE_SMOOTHING = 0.35;
+const PINCH_START_RATIO = 0.23;
+const PINCH_RELEASE_RATIO = 0.31;
+const GRAB_HOLD_FRAMES = 6;
 
 // Grab state
-const GRAB_REGION = 160;
 const grab = {
     active: false,
-    snapshot: null,
-    regionX: 0, regionY: 0,
-    regionW: 0, regionH: 0,
+    snapshotCanvas: null,
     grabHandX: 0, grabHandY: 0,
     offsetX: 0, offsetY: 0,
 };
@@ -123,6 +125,14 @@ function palmCenter(lm, W, H) {
 function indexTip(lm, W, H) { return { x: (1 - lm[8].x) * W, y: lm[8].y * H }; }
 function thumbTip(lm, W, H) { return { x: (1 - lm[4].x) * W, y: lm[4].y * H }; }
 function dist2(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
+function lerpPoint(a, b, t) {
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function palmWidth(lm, W, H) {
+    const knuckleA = { x: (1 - lm[5].x) * W, y: lm[5].y * H };
+    const knuckleB = { x: (1 - lm[17].x) * W, y: lm[17].y * H };
+    return Math.max(1, dist2(knuckleA, knuckleB));
+}
 
 // ── Gesture classifier ────────────────────────────────────
 function classifyGesture(lm, W, H) {
@@ -132,16 +142,26 @@ function classifyGesture(lm, W, H) {
     const pinkyUp = isUp(lm, 20, 18);
     const totalUp = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
 
+    if (totalUp >= 4) return { mode: 'erase' };
+
     if (indexUp && !middleUp && !ringUp && !pinkyUp) {
-        const pinchDist = dist2(indexTip(lm, W, H), thumbTip(lm, W, H));
-        return pinchDist < 50 ? 'grab' : 'draw';
+        const itip = indexTip(lm, W, H);
+        const ttip = thumbTip(lm, W, H);
+        const pinchDist = dist2(itip, ttip);
+        const pinchRatio = pinchDist / palmWidth(lm, W, H);
+        return {
+            mode: 'draw',
+            pinchRatio,
+            pinchPoint: { x: (itip.x + ttip.x) / 2, y: (itip.y + ttip.y) / 2 },
+            drawPoint: itip,
+        };
     }
-    if (totalUp >= 4) return 'erase';
-    return 'idle';
+
+    return { mode: 'idle' };
 }
 
 // ── Draw stroke ───────────────────────────────────────────
-function drawStroke(x1, y1, x2, y2, velocity) {
+function drawStroke(fromMid, control, toMid, velocity) {
     const col = COLOR_MAP[currentColor];
     const profile = getBrushProfile(sliderVal);
     const lw = Math.max(0.4, profile.lineWidth * (1 - Math.min(velocity / 25, 1) * 0.25));
@@ -154,8 +174,8 @@ function drawStroke(x1, y1, x2, y2, velocity) {
     dCtx.shadowBlur = 0;
     dCtx.shadowColor = 'transparent';
     dCtx.beginPath();
-    dCtx.moveTo(x1, y1);
-    dCtx.lineTo(x2, y2);
+    dCtx.moveTo(fromMid.x, fromMid.y);
+    dCtx.quadraticCurveTo(control.x, control.y, toMid.x, toMid.y);
     dCtx.stroke();
     dCtx.restore();
 }
@@ -175,20 +195,19 @@ function eraseAt(cx, cy) {
 // ── Grab functions ────────────────────────────────────────
 function startGrab(hx, hy) {
     if (grab.active) return;
-    const rx = Math.max(0, hx - GRAB_REGION);
-    const ry = Math.max(0, hy - GRAB_REGION);
-    const rw = Math.min(drawCanvas.width - rx, GRAB_REGION * 2);
-    const rh = Math.min(drawCanvas.height - ry, GRAB_REGION * 2);
 
-    grab.snapshot = dCtx.getImageData(rx, ry, rw, rh);
-    grab.regionX = rx; grab.regionY = ry;
-    grab.regionW = rw; grab.regionH = rh;
+    const snapshot = document.createElement('canvas');
+    snapshot.width = drawCanvas.width;
+    snapshot.height = drawCanvas.height;
+    snapshot.getContext('2d').drawImage(drawCanvas, 0, 0);
+
+    grab.snapshotCanvas = snapshot;
     grab.grabHandX = hx; grab.grabHandY = hy;
     grab.offsetX = 0; grab.offsetY = 0;
     grab.active = true;
 
-    // Cut content from canvas
-    dCtx.clearRect(rx, ry, rw, rh);
+    // Move the entire drawing as a single object.
+    dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
 }
 
 function updateGrab(hx, hy) {
@@ -199,29 +218,22 @@ function updateGrab(hx, hy) {
 
 function releaseGrab() {
     if (!grab.active) return;
-    // Stamp at new position
-    const off = document.createElement('canvas');
-    off.width = grab.regionW; off.height = grab.regionH;
-    off.getContext('2d').putImageData(grab.snapshot, 0, 0);
-    dCtx.drawImage(off, grab.regionX + grab.offsetX, grab.regionY + grab.offsetY);
-    grab.active = false; grab.snapshot = null;
+
+    dCtx.drawImage(grab.snapshotCanvas, grab.offsetX, grab.offsetY);
+    grab.active = false;
+    grab.snapshotCanvas = null;
 }
 
 function drawGrabPreview() {
-    if (!grab.active || !grab.snapshot) return;
-    const nx = grab.regionX + grab.offsetX;
-    const ny = grab.regionY + grab.offsetY;
-    const off = document.createElement('canvas');
-    off.width = grab.regionW; off.height = grab.regionH;
-    off.getContext('2d').putImageData(grab.snapshot, 0, 0);
+    if (!grab.active || !grab.snapshotCanvas) return;
+
     lCtx.save();
     lCtx.globalAlpha = 0.88;
-    lCtx.drawImage(off, nx, ny);
-    // Dashed bounding box
-    lCtx.strokeStyle = 'rgba(255,220,0,0.7)';
-    lCtx.lineWidth = 1.5;
+    lCtx.drawImage(grab.snapshotCanvas, grab.offsetX, grab.offsetY);
+    lCtx.strokeStyle = 'rgba(255,220,0,0.35)';
+    lCtx.lineWidth = 1;
     lCtx.setLineDash([6, 4]);
-    lCtx.strokeRect(nx, ny, grab.regionW, grab.regionH);
+    lCtx.strokeRect(grab.offsetX, grab.offsetY, drawCanvas.width, drawCanvas.height);
     lCtx.setLineDash([]);
     lCtx.restore();
 }
@@ -310,13 +322,6 @@ function renderLandmarks(lm, gesture) {
         lCtx.fillStyle = 'rgba(255,220,0,0.3)'; lCtx.fill();
         lCtx.beginPath(); lCtx.arc(mx, my, 4, 0, Math.PI * 2);
         lCtx.fillStyle = 'rgba(255,220,0,0.95)'; lCtx.fill();
-        // Capture region preview (before grab starts)
-        if (!grab.active) {
-            lCtx.strokeStyle = 'rgba(255,220,0,0.35)'; lCtx.lineWidth = 1;
-            lCtx.setLineDash([5, 4]);
-            lCtx.strokeRect(mx - GRAB_REGION, my - GRAB_REGION, GRAB_REGION * 2, GRAB_REGION * 2);
-            lCtx.setLineDash([]);
-        }
         drawGrabPreview();
     }
 
@@ -363,6 +368,9 @@ function onResults(results) {
     if (!results.multiHandLandmarks?.length) {
         handPresent = false;
         prevPoint = null;
+        prevMidPoint = null;
+        prevVelocity = 0;
+        pinchFrames = 0;
         if (grab.active) releaseGrab();
         updateHUD('idle');
         return;
@@ -371,42 +379,71 @@ function onResults(results) {
     handPresent = true;
     const lm = results.multiHandLandmarks[0];
     const W = drawCanvas.width, H = drawCanvas.height;
-    const gesture = classifyGesture(lm, W, H);
-    currentMode = gesture;
+    const gestureInfo = classifyGesture(lm, W, H);
+
+    let gesture = gestureInfo.mode;
+
+    if (gestureInfo.mode === 'draw') {
+        const canStartGrab = gestureInfo.pinchRatio < PINCH_START_RATIO;
+        const canKeepGrab = grab.active && gestureInfo.pinchRatio < PINCH_RELEASE_RATIO;
+        if (canStartGrab || canKeepGrab) {
+            pinchFrames += 1;
+            if (!grab.active && pinchFrames >= GRAB_HOLD_FRAMES) {
+                startGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
+            }
+            if (grab.active) {
+                updateGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
+                gesture = 'grab';
+            }
+        } else {
+            pinchFrames = 0;
+            if (grab.active) releaseGrab();
+        }
+    } else {
+        pinchFrames = 0;
+    }
+
+    if (pinchFrames > 0 && !grab.active && gesture === 'draw') {
+        gesture = 'grab';
+    }
 
     renderLandmarks(lm, gesture);
     updateHUD(gesture);
 
     if (gesture === 'draw') {
-        if (grab.active) releaseGrab();
-        const { x, y } = indexTip(lm, W, H);
+        const rawPoint = gestureInfo.drawPoint;
+        const point = prevPoint ? lerpPoint(prevPoint, rawPoint, STROKE_SMOOTHING) : rawPoint;
+
+        if (!prevPoint) {
+            prevPoint = point;
+            prevMidPoint = point;
+        }
+
         if (prevPoint) {
-            const dx = x - prevPoint.x, dy = y - prevPoint.y;
+            const dx = point.x - prevPoint.x, dy = point.y - prevPoint.y;
             const d = Math.sqrt(dx * dx + dy * dy);
             prevVelocity = 0.2 * d + 0.8 * prevVelocity;
-            if (d < 80) drawStroke(prevPoint.x, prevPoint.y, x, y, prevVelocity);
+            if (d < 90) {
+                const mid = { x: (prevPoint.x + point.x) * 0.5, y: (prevPoint.y + point.y) * 0.5 };
+                drawStroke(prevMidPoint, prevPoint, mid, prevVelocity);
+                prevMidPoint = mid;
+            }
         }
-        prevPoint = { x, y };
+        prevPoint = point;
 
     } else if (gesture === 'erase') {
         if (grab.active) releaseGrab();
-        prevPoint = null; prevVelocity = 0;
+        prevPoint = null; prevMidPoint = null; prevVelocity = 0;
         const pc = palmCenter(lm, W, H);
         eraseAt(pc.x, pc.y);
 
     } else if (gesture === 'grab') {
-        prevPoint = null; prevVelocity = 0;
-        const itip = indexTip(lm, W, H), ttip = thumbTip(lm, W, H);
-        const hx = (itip.x + ttip.x) / 2, hy = (itip.y + ttip.y) / 2;
-        if (prevGesture !== 'grab') startGrab(hx, hy);
-        else updateGrab(hx, hy);
+        prevPoint = null; prevMidPoint = null; prevVelocity = 0;
 
     } else {
         if (grab.active) releaseGrab();
-        prevPoint = null; prevVelocity = 0;
+        prevPoint = null; prevMidPoint = null; prevVelocity = 0;
     }
-
-    prevGesture = gesture;
 }
 
 // ── MediaPipe init ────────────────────────────────────────
