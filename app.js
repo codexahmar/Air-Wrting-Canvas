@@ -67,11 +67,12 @@ let handPresent = false;
 let frameCount = 0;
 let lastFpsTime = performance.now();
 let pinchFrames = 0;
+let grabReleaseFrames = 0;
 
 const STROKE_SMOOTHING = 0.35;
-const PINCH_START_RATIO = 0.23;
-const PINCH_RELEASE_RATIO = 0.31;
-const GRAB_HOLD_FRAMES = 6;
+const PINCH_START_RATIO = 0.26;
+const GRAB_HOLD_FRAMES = 3;
+const GRAB_RELEASE_HOLD_FRAMES = 4;
 
 // Grab state
 const grab = {
@@ -136,28 +137,47 @@ function palmWidth(lm, W, H) {
 
 // ── Gesture classifier ────────────────────────────────────
 function classifyGesture(lm, W, H) {
+    const itip = indexTip(lm, W, H);
+    const ttip = thumbTip(lm, W, H);
+    const pinchRatio = dist2(itip, ttip) / palmWidth(lm, W, H);
+    const pinchPoint = { x: (itip.x + ttip.x) / 2, y: (itip.y + ttip.y) / 2 };
+
     const indexUp = isUp(lm, 8, 6);
     const middleUp = isUp(lm, 12, 10);
     const ringUp = isUp(lm, 16, 14);
     const pinkyUp = isUp(lm, 20, 18);
     const totalUp = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
 
-    if (totalUp >= 4) return { mode: 'erase' };
-
-    if (indexUp && !middleUp && !ringUp && !pinkyUp) {
-        const itip = indexTip(lm, W, H);
-        const ttip = thumbTip(lm, W, H);
-        const pinchDist = dist2(itip, ttip);
-        const pinchRatio = pinchDist / palmWidth(lm, W, H);
+    if (totalUp >= 4) {
         return {
-            mode: 'draw',
+            mode: 'erase',
             pinchRatio,
-            pinchPoint: { x: (itip.x + ttip.x) / 2, y: (itip.y + ttip.y) / 2 },
+            pinchPoint,
             drawPoint: itip,
+            indexUp,
+            totalUp,
         };
     }
 
-    return { mode: 'idle' };
+    if (indexUp && !middleUp && !ringUp && !pinkyUp) {
+        return {
+            mode: 'draw',
+            pinchRatio,
+            pinchPoint,
+            drawPoint: itip,
+            indexUp,
+            totalUp,
+        };
+    }
+
+    return {
+        mode: 'idle',
+        pinchRatio,
+        pinchPoint,
+        drawPoint: itip,
+        indexUp,
+        totalUp,
+    };
 }
 
 // ── Draw stroke ───────────────────────────────────────────
@@ -222,6 +242,7 @@ function releaseGrab() {
     dCtx.drawImage(grab.snapshotCanvas, grab.offsetX, grab.offsetY);
     grab.active = false;
     grab.snapshotCanvas = null;
+    grabReleaseFrames = 0;
 }
 
 function drawGrabPreview() {
@@ -371,6 +392,7 @@ function onResults(results) {
         prevMidPoint = null;
         prevVelocity = 0;
         pinchFrames = 0;
+        grabReleaseFrames = 0;
         if (grab.active) releaseGrab();
         updateHUD('idle');
         return;
@@ -382,29 +404,38 @@ function onResults(results) {
     const gestureInfo = classifyGesture(lm, W, H);
 
     let gesture = gestureInfo.mode;
+    const pinchClosed = gestureInfo.pinchRatio < PINCH_START_RATIO;
 
-    if (gestureInfo.mode === 'draw') {
-        const canStartGrab = gestureInfo.pinchRatio < PINCH_START_RATIO;
-        const canKeepGrab = grab.active && gestureInfo.pinchRatio < PINCH_RELEASE_RATIO;
-        if (canStartGrab || canKeepGrab) {
-            pinchFrames += 1;
-            if (!grab.active && pinchFrames >= GRAB_HOLD_FRAMES) {
-                startGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
+    if (grab.active) {
+        gesture = 'grab';
+
+        // Keep grab locked while index-led pose remains; release only on clear intent.
+        const releaseIntent = !gestureInfo.indexUp || gestureInfo.totalUp >= 3;
+        if (!releaseIntent) {
+            grabReleaseFrames = 0;
+            updateGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
+        } else {
+            grabReleaseFrames += 1;
+            if (grabReleaseFrames >= GRAB_RELEASE_HOLD_FRAMES) {
+                releaseGrab();
+                pinchFrames = 0;
             }
-            if (grab.active) {
+        }
+    }
+
+    if (!grab.active && gestureInfo.mode === 'draw') {
+        if (pinchClosed) {
+            pinchFrames += 1;
+            if (pinchFrames >= GRAB_HOLD_FRAMES) {
+                startGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
                 updateGrab(gestureInfo.pinchPoint.x, gestureInfo.pinchPoint.y);
                 gesture = 'grab';
             }
         } else {
             pinchFrames = 0;
-            if (grab.active) releaseGrab();
         }
-    } else {
+    } else if (!grab.active) {
         pinchFrames = 0;
-    }
-
-    if (pinchFrames > 0 && !grab.active && gesture === 'draw') {
-        gesture = 'grab';
     }
 
     renderLandmarks(lm, gesture);
@@ -422,11 +453,25 @@ function onResults(results) {
         if (prevPoint) {
             const dx = point.x - prevPoint.x, dy = point.y - prevPoint.y;
             const d = Math.sqrt(dx * dx + dy * dy);
-            prevVelocity = 0.2 * d + 0.8 * prevVelocity;
-            if (d < 90) {
-                const mid = { x: (prevPoint.x + point.x) * 0.5, y: (prevPoint.y + point.y) * 0.5 };
-                drawStroke(prevMidPoint, prevPoint, mid, prevVelocity);
-                prevMidPoint = mid;
+            if (d < 220) {
+                const baseFrom = prevPoint;
+                let segmentFrom = prevPoint;
+                const steps = Math.max(1, Math.ceil(d / 18));
+
+                for (let i = 1; i <= steps; i += 1) {
+                    const segmentTo = lerpPoint(baseFrom, point, i / steps);
+                    const segmentDx = segmentTo.x - segmentFrom.x;
+                    const segmentDy = segmentTo.y - segmentFrom.y;
+                    const segmentDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
+                    prevVelocity = 0.2 * segmentDistance + 0.8 * prevVelocity;
+
+                    const mid = { x: (segmentFrom.x + segmentTo.x) * 0.5, y: (segmentFrom.y + segmentTo.y) * 0.5 };
+                    drawStroke(prevMidPoint, segmentFrom, mid, prevVelocity);
+                    prevMidPoint = mid;
+                    segmentFrom = segmentTo;
+                }
+            } else {
+                prevMidPoint = point;
             }
         }
         prevPoint = point;
